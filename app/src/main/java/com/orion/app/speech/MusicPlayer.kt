@@ -1,14 +1,13 @@
 package com.orion.app.speech
 
 import android.content.Context
-import android.media.MediaDataSource
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.exoplayer.ExoPlayer
-import java.io.File
 
 class MusicPlayer(private val context: Context) {
     private var player: ExoPlayer? = null
@@ -18,13 +17,21 @@ class MusicPlayer(private val context: Context) {
     data class Track(val title: String, val uri: Uri)
 
     fun init() {
-        if (player == null) {
-            player = ExoPlayer.Builder(context).build()
+        try {
+            if (player == null) {
+                player = ExoPlayer.Builder(context).build()
+            }
+        } catch (e: Exception) {
+            Log.e("MusicPlayer", "init failed", e)
         }
     }
 
     fun loadLocalTracks(folder: String = "") {
-        trackList = scanTracks(folder)
+        try {
+            trackList = scanTracks(folder)
+        } catch (e: Exception) {
+            Log.e("MusicPlayer", "loadLocalTracks failed", e)
+        }
     }
 
     private fun scanTracks(folder: String): List<Track> {
@@ -83,25 +90,38 @@ class MusicPlayer(private val context: Context) {
     }
 
     private fun playAt(idx: Int) {
-        val track = trackList.getOrNull(idx) ?: return
-        val item = MediaItem.Builder()
-            .setUri(track.uri)
-            .setMediaMetadata(MediaMetadata.Builder().setTitle(track.title).build())
-            .build()
-        player?.setMediaItem(item)
-        player?.prepare()
-        player?.play()
+        try {
+            init()
+            val track = trackList.getOrNull(idx) ?: return
+            val item = MediaItem.Builder()
+                .setUri(track.uri)
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(track.title).build())
+                .build()
+            player?.setMediaItem(item)
+            player?.prepare()
+            player?.play()
+        } catch (e: Exception) {
+            Log.e("MusicPlayer", "playAt failed", e)
+        }
     }
 
     fun stop() {
-        player?.stop()
-        player?.clearMediaItems()
+        try {
+            player?.stop()
+            player?.clearMediaItems()
+        } catch (e: Exception) {
+            Log.e("MusicPlayer", "stop failed", e)
+        }
     }
 
-    fun isPlaying(): Boolean = player?.isPlaying == true
+    fun isPlaying(): Boolean = try { player?.isPlaying == true } catch (e: Exception) { false }
 
     fun release() {
-        player?.release()
-        player = null
+        try {
+            player?.release()
+            player = null
+        } catch (e: Exception) {
+            Log.e("MusicPlayer", "release failed", e)
+        }
     }
 }

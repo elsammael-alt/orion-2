@@ -3,7 +3,6 @@ package com.orion.app.ai
 import android.util.Log
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.Content
-import com.google.ai.client.generativeai.type.TextPart
 import com.google.ai.client.generativeai.type.content
 import com.orion.app.data.PreferenceStore
 import kotlinx.coroutines.Dispatchers
