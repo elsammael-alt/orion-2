@@ -16,7 +16,17 @@ enum class CommandType {
     ALARM,
     STOP,
     PLAY_MUSIC,
+    PAUSE_MUSIC,
+    NEXT_TRACK,
+    PREV_TRACK,
+    VOLUME_UP,
+    VOLUME_DOWN,
+    NOTE_TAKE,
+    NOTE_READ,
+    NOTE_DELETE,
     OPEN_APP,
+    NOTES_LIST,
+    ASK_AI,
     UNKNOWN
 }
 
@@ -27,34 +37,75 @@ class OfflineCommandParser {
         val text = input.lowercase().trim()
         Log.d(tag, "Parsing: $text")
 
-        // Wake word cleanup already done before calling this
-
-        // Timer: "nastav timer na 5 minut" / "budík za 10 minut"
-        val timerMin = extractMinutes(text, listOf("timer", "časovač", "odpočet"))
-        if (timerMin > 0) {
-            return ParsedCommand(CommandType.TIMER, input, minutes = timerMin)
+        // Timer
+        if (matchesAny(text, listOf("timer", "časovač", "odpočet"))) {
+            val min = extractMinutes(text)
+            if (min > 0) return ParsedCommand(CommandType.TIMER, input, minutes = min)
         }
 
-        // Alarm: "nastav budík na 7:30" / "vzbud mě v 7 hodin"
+        // Alarm
         val alarm = extractAlarm(text)
         if (alarm != null) {
             return ParsedCommand(CommandType.ALARM, input, hours = alarm.first, minutes = alarm.second)
         }
 
         // Stop / cancel
-        if (text.contains("stop") || text.contains("zastav") ||
-            text.contains("zruš") || text.contains("ukonči") ||
-            text.contains("přestaň")) {
+        if (matchesAny(text, listOf("stop", "zastav", "zruš", "ukonči", "přestaň"))) {
             return ParsedCommand(CommandType.STOP, input)
         }
 
-        // Music
-        if (text.contains("pust") && (text.contains("hudb") || text.contains("písnič") ||
-                text.contains("píseň") || text.contains("muzik") || text.contains("song")) ||
-            text.contains("hraj") && text.contains("hudb") ||
-            text.contains("přehraj")) {
+        // Music - play
+        if (matchesAny(text, listOf("pusť", "přehraj", "hraj", "zahraj")) &&
+            matchesAny(text, listOf("hudb", "písnič", "píseň", "muzik", "song", "něco"))) {
             val query = extractMusicQuery(text)
             return ParsedCommand(CommandType.PLAY_MUSIC, input, query = query)
+        }
+        // Just "pusť hudbu" / "hraj"
+        if ((text.contains("pusť") || text.contains("hraj")) && 
+            (text.contains("hud") || text.contains("písnič") || text.contains("něco"))) {
+            return ParsedCommand(CommandType.PLAY_MUSIC, input)
+        }
+
+        // Music control
+        if (matchesAny(text, listOf("pauza", "pozastav", "zastav hudbu", "stop hudbu"))) {
+            return ParsedCommand(CommandType.PAUSE_MUSIC, input)
+        }
+        if (matchesAny(text, listOf("další", "další písnič", "skip", "přeskoč", "další skladba"))) {
+            return ParsedCommand(CommandType.NEXT_TRACK, input)
+        }
+        if (matchesAny(text, listOf("předchozí", "minulá", "předchozí písnič"))) {
+            return ParsedCommand(CommandType.PREV_TRACK, input)
+        }
+        if (matchesAny(text, listOf("ztlum", "ztiš", "snížit hlasitos", "míň"))) {
+            return ParsedCommand(CommandType.VOLUME_DOWN, input)
+        }
+        if (matchesAny(text, listOf("zesil", "zesílit", "zvýšit hlasitos", "víc", "nahlas"))) {
+            return ParsedCommand(CommandType.VOLUME_UP, input)
+        }
+
+        // Notes
+        // "zapiš / poznamenej si / ulož ..."
+        val noteTakeMatch = Regex("(?:zapiš|poznamenej|ulož|zapamat.|zapiš si|napiš si)\\s+(.+)").find(text)
+        if (noteTakeMatch != null) {
+            return ParsedCommand(CommandType.NOTE_TAKE, input, query = noteTakeMatch.groupValues[1].trim())
+        }
+        if (matchesAny(text, listOf("poznámk", "noty", "notes")) && 
+            matchesAny(text, listOf("čti", "přečti", "ukaž", "co mám"))) {
+            return ParsedCommand(CommandType.NOTE_READ, input)
+        }
+        // "smaž / vymaž poznámku"
+        if (matchesAny(text, listOf("smaž poznámk", "vymaž poznámk", "smaž not")) && extractNoteNum(text) > 0) {
+            return ParsedCommand(CommandType.NOTE_DELETE, input, minutes = extractNoteNum(text))
+        }
+        if (matchesAny(text, listOf("seznam poznámek", "co mám v poznámkách", "poznámky", "noty"))) {
+            return ParsedCommand(CommandType.NOTES_LIST, input)
+        }
+
+        // AI question (fallback: send to local LLM)
+        if (text.startsWith("orione") || text.startsWith("ai") || 
+            text.length > 10 && (text.contains("?") || text.contains("co je") || 
+            text.contains("proč") || text.contains("jak") || text.contains("kdo"))) {
+            return ParsedCommand(CommandType.ASK_AI, input, query = text)
         }
 
         // Open app
@@ -66,32 +117,26 @@ class OfflineCommandParser {
         return ParsedCommand(CommandType.UNKNOWN, input)
     }
 
-    private fun extractMinutes(text: String, keywords: List<String>): Int {
-        for (kw in keywords) {
-            if (text.contains(kw)) {
-                // "na 5 minut"
-                val m = Regex("(\\d+)\\s*(?:minut|min|m)?").find(text)
-                if (m != null) return m.groupValues[1].toIntOrNull() ?: 0
-                // "za 10 minut"
-                val m2 = Regex("za\\s*(\\d+)").find(text)
-                if (m2 != null) return m2.groupValues[1].toIntOrNull() ?: 0
-            }
-        }
+    private fun matchesAny(text: String, keywords: List<String>): Boolean {
+        return keywords.any { text.contains(it, ignoreCase = true) }
+    }
+
+    private fun extractMinutes(text: String): Int {
+        val m = Regex("(\\d+)\\s*(?:minut|min|m)?").find(text)
+        if (m != null) return m.groupValues[1].toIntOrNull() ?: 0
+        val m2 = Regex("za\\s*(\\d+)").find(text)
+        if (m2 != null) return m2.groupValues[1].toIntOrNull() ?: 0
         return 0
     }
 
     private fun extractAlarm(text: String): Pair<Int, Int>? {
-        if (!text.contains("budík") && !text.contains("vzbud") && !text.contains("probud")) {
-            return null
-        }
-        // "na 7:30"
+        if (!matchesAny(text, listOf("budík", "vzbud", "probud"))) return null
         val time = Regex("(\\d{1,2})[:.](\\d{2})").find(text)
         if (time != null) {
             val h = time.groupValues[1].toIntOrNull() ?: return null
             val m = time.groupValues[2].toIntOrNull() ?: return null
             if (h in 0..23 && m in 0..59) return Pair(h, m)
         }
-        // "v 7 hodin 30"
         val hod = Regex("v\\s*(\\d{1,2})\\s*(?:hodin|hod)").find(text)
         if (hod != null) {
             val h = hod.groupValues[1].toIntOrNull() ?: return null
@@ -105,5 +150,10 @@ class OfflineCommandParser {
     private fun extractMusicQuery(text: String): String {
         val m = Regex("(?:písničku|píseň|skladbu|song)\\s+(.+)").find(text)
         return m?.groupValues?.get(1)?.trim() ?: ""
+    }
+
+    private fun extractNoteNum(text: String): Int {
+        val m = Regex("(\\d+)").find(text)
+        return m?.groupValues?.get(1)?.toIntOrNull() ?: 0
     }
 }

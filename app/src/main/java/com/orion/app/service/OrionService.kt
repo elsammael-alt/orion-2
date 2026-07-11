@@ -11,7 +11,9 @@ import com.orion.app.MainActivity
 import com.orion.app.OrionApp
 import com.orion.app.R
 import com.orion.app.ai.GeminiClient
+import com.orion.app.ai.LocalLLMClient
 import com.orion.app.appcontrol.AppControlHelper
+import com.orion.app.data.NoteStore
 import com.orion.app.speech.*
 import com.orion.app.util.AlarmHelper
 import kotlinx.coroutines.*
@@ -33,6 +35,8 @@ class OrionService : Service() {
     private lateinit var gemini: GeminiClient
     private lateinit var tts: TextToSpeechHelper
     private lateinit var musicPlayer: MusicPlayer
+    private lateinit var localLLM: LocalLLMClient
+    private lateinit var noteStore: NoteStore
     private lateinit var appControl: AppControlHelper
     private lateinit var alarmHelper: AlarmHelper
     private lateinit var offlineParser: OfflineCommandParser
@@ -55,6 +59,8 @@ class OrionService : Service() {
         gemini = GeminiClient(app.prefs)
         tts = TextToSpeechHelper(this) { /* done speaking */ }
         musicPlayer = MusicPlayer(this)
+        localLLM = LocalLLMClient()
+        noteStore = NoteStore(this)
         appControl = AppControlHelper(this)
         alarmHelper = AlarmHelper(this)
         offlineParser = OfflineCommandParser()
@@ -194,6 +200,63 @@ class OrionService : Service() {
                     if (opened) tts.speak("Spouštím ${parsed.query}")
                     else tts.speak("Aplikaci $parsed.query jsem nenašel")
                 }
+                CommandType.PAUSE_MUSIC -> {
+                    musicPlayer.stop()
+                    tts.speak("Hudba pozastavena")
+                }
+                CommandType.NEXT_TRACK -> {
+                    musicPlayer.playNext()
+                    tts.speak("Další skladba")
+                }
+                CommandType.PREV_TRACK -> {
+                    musicPlayer.playPrevious()
+                    tts.speak("Předchozí skladba")
+                }
+                CommandType.VOLUME_UP -> {
+                    adjustVolume(1.15f)
+                    tts.speak("Zesíleno")
+                }
+                CommandType.VOLUME_DOWN -> {
+                    adjustVolume(0.85f)
+                    tts.speak("Ztlumeno")
+                }
+                CommandType.NOTE_TAKE -> {
+                    val note = noteStore.add(parsed.query)
+                    tts.speak("Uloženo poznámka ${note.id}: ${parsed.query}")
+                }
+                CommandType.NOTE_READ -> {
+                    val notes = noteStore.getAll()
+                    if (notes.isEmpty()) {
+                        tts.speak("Nemáš žádné poznámky")
+                    } else {
+                        val text = notes.take(5).joinToString(". ") { "${it.id}: ${it.text}" }
+                        tts.speak(text)
+                    }
+                }
+                CommandType.NOTE_DELETE -> {
+                    if (noteStore.getById(parsed.minutes) != null) {
+                        noteStore.delete(parsed.minutes)
+                        tts.speak("Smazáno poznámka ${parsed.minutes}")
+                    } else {
+                        tts.speak("Poznámka ${parsed.minutes} nenalezena")
+                    }
+                }
+                CommandType.NOTES_LIST -> {
+                    val count = noteStore.count()
+                    tts.speak("Máš $count poznámek")
+                }
+                CommandType.ASK_AI -> {
+                    if (localLLM.isAvailable()) {
+                        serviceScope.launch {
+                            _status.value = "Orion přemýšlí (offline)..."
+                            val reply = localLLM.sendMessage(parsed.query, app.prefs.getFacts())
+                            tts.speak(reply)
+                            resetToWakeWord()
+                        }
+                    } else {
+                        tts.speak("Lokální AI není dostupná. Nainstaluj Ollamu pro offline odpovědi.")
+                    }
+                }
                 CommandType.UNKNOWN -> {
                     if (!isOnline) {
                         tts.speak("Nerozuměl jsem. Zkus: timer, budík, pusť hudbu, nebo otevři aplikaci.")
@@ -249,6 +312,19 @@ class OrionService : Service() {
         val network = cm.activeNetwork ?: return false
         val caps = cm.getNetworkCapabilities(network) ?: return false
         return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun adjustVolume(multiplier: Float) {
+        try {
+            val audioManager = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+            val current = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+            var newVol = (current * multiplier).toInt()
+            newVol = newVol.coerceIn(0, max)
+            audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, newVol, 0)
+        } catch (e: Exception) {
+            Log.e("OrionService", "Volume error", e)
+        }
     }
 
     override fun onDestroy() {
