@@ -19,6 +19,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.orion.app.OrionApp
 import com.orion.app.ai.GeminiClient
@@ -356,7 +357,7 @@ class OrionService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         try {
-            serviceScope.cancel()
+            serviceScope.coroutineContext.cancelChildren()
             speechHelper?.destroy()
             wakeWordDetector?.destroy()
             tts.shutdown()
