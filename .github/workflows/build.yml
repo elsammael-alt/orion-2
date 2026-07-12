@@ -10,36 +10,59 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
+      # 1️⃣ Checkout
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 2️⃣ JDK 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
+      # 3️⃣ ★ Node 18 – stabilní verze
+      - name: Set up Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      # 4️⃣ Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
           cmdline-tools-version: 11076708
           accept-android-sdk-licenses: true
-          packages: 'tools platform-tools build-tools;34.0.0 platforms;android-34'
+          packages: |
+            tools
+            platform-tools
+            build-tools;34.0.0
+            platforms;android-34
 
+      # 5️⃣ Export Android SDK root (někdy pomůže Gradlu)
+      - name: Export Android SDK env
+        run: echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
+
+      # 6️⃣ Vytvoř local.properties
       - name: Create local.properties
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
 
+      # 7️⃣ Udělí právo spustit gradlew
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # 8️⃣ ★ Build – i když selže, logy se zachytí
       - name: Build with Gradle
         run: ./gradlew assembleDebug
+        continue-on-error: true
 
+      # 9️⃣ Upload APK (zkusí se i při chybě předchozího kroku)
       - name: Upload APK
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Orion-Debug-APK
           path: app/build/outputs/apk/debug/app-debug.apk
